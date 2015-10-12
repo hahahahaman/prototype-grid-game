@@ -1,1 +1,1 @@
-This is the stub README.txt for the "matrix-transforms" project.
+Transform matrices to fit the given pattern.
