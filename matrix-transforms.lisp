@@ -1077,7 +1077,7 @@ the shader did not compile an error is called."
   (iter (for r from 0 below rotations)
     (let* ((rows (matrix-rows m))
            (cols (matrix-cols m))
-           (new-m (make-matrix cols rows)))
+           (new-m m))
       (iter (for i from 0 below rows)
         (iter (for j from 0 below cols)
           (setf new-m (with-matrix-at new-m (- cols 1 j) i (matrix-at m i j)))))
@@ -1088,7 +1088,7 @@ the shader did not compile an error is called."
   (iter (for r from 0 below rotations)
     (let* ((rows (matrix-rows m))
            (cols (matrix-cols m))
-           (new-m (make-matrix cols rows)))
+           (new-m m))
       (iter (for i from 0 below rows)
         (iter (for j from 0 below cols)
           (setf new-m (with-matrix-at new-m j (- rows 1 i) (matrix-at m i j)))))
@@ -1261,16 +1261,46 @@ the shader did not compile an error is called."
                    (setf *matricies*
                          (with *matricies*
                                *selected-matrix*
-                               (matrix-rotate-ccw (@ *matricies* *selected-matrix*))))
-                   (update-grid))))
+                               (matrix-rotate-ccw (@ *matricies* *selected-matrix*)))))))
 
     (when (key-action-p :x :press)
       (add-event (lambda ()
                    (setf *matricies*
                          (with *matricies*
                                *selected-matrix*
-                               (matrix-rotate-cw (@ *matricies* *selected-matrix*))))
-                   (update-grid))))
+                               (matrix-rotate-cw (@ *matricies* *selected-matrix*)))))))
+
+    (when (key-action-p :up :press)
+      (let ((selected (@ *matricies* *selected-matrix*)))
+        (when (>= (1- (@ selected :y)) 0)
+          (add-event (lambda ()
+                       (setf *matricies*
+                             (with *matricies* *selected-matrix*
+                                   (with selected :y (1- (@ selected :y))))))))))
+
+    (when (key-action-p :down :press)
+      (let ((selected (@ *matricies* *selected-matrix*)))
+        (when (<= (+ (matrix-rows selected) (@ selected :y) 1) (matrix-rows *grid*))
+          (add-event (lambda ()
+                       (setf *matricies*
+                             (with *matricies* *selected-matrix*
+                                   (with selected :y (1+ (@ selected :y))))))))))
+
+    (when (key-action-p :left :press)
+      (let ((selected (@ *matricies* *selected-matrix*)))
+        (when (>= (1- (@ selected :x)) 0)
+          (add-event (lambda ()
+                       (setf *matricies*
+                             (with *matricies* *selected-matrix*
+                                   (with selected :x (1- (@ selected :x))))))))))
+
+    (when (key-action-p :right :press)
+      (let ((selected (@ *matricies* *selected-matrix*)))
+        (when (<= (+ (matrix-cols selected) (@ selected :x) 1) (matrix-cols *grid*))
+          (add-event (lambda ()
+                       (setf *matricies*
+                             (with *matricies* *selected-matrix*
+                                   (with selected :x (1+ (@ selected :x))))))))))
 
     (when (key-action-p :n :press)
       (add-event (lambda ()
@@ -1290,12 +1320,14 @@ the shader did not compile an error is called."
 (defun update ()
   (cond ((eql *time-travel-state* +time-play+)
          ;; (update-timeline)
+         (update-events)
+         (update-grid)
          )
         ((eql *time-travel-state* +time-rewind+)
          (rewind-time))
         ((eql *time-travel-state* +time-forward+)
          (forward-time)))
-  (update-events))
+  )
 
 (defun render-grid ()
   (let* ((line-thickness 2.0)
@@ -1340,13 +1372,13 @@ the shader did not compile an error is called."
            (cols (matrix-cols selected))
            (rows (matrix-rows selected)))
       ;;vertical
-      (iter (for j from x to (1+ cols))
+      (iter (for j from x to (+ x cols))
         (rect-render (vec2 (- (* j rect-width) line-thickness/2) (* y rect-height))
                      (vec2 line-thickness (* rows rect-height))
                      (vec4 0.0 0.0 1.0 0.7)))
 
       ;;horizontal lines
-      (iter (for i from y to (1+ rows))
+      (iter (for i from y to (+ y rows))
         (rect-render (vec2 (* x rect-width) (- (* i rect-height) line-thickness/2))
                      (vec2 (* cols rect-width) line-thickness)
                      (vec4 0.0 0.0 1.0 0.7))))))
