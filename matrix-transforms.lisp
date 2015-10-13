@@ -1041,33 +1041,120 @@ the shader did not compile an error is called."
   (mapcar #'funcall *destructive-changes*)
   (setf *destructive-changes* nil)
   t)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; levels
-(defglobal *grid* ())
-(defglobal *grid-dim* 1)
-(defglobal *matricies* ())
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defglobal *grid* (empty-map))
+(defglobal *final-grid* ())
+(defglobal *selected-matrix* 0)
+(defglobal *matricies* (empty-seq))
 
 (defun make-matrix (rows cols)
   (map (:rows rows)
        (:cols cols)
        (:data (with (with-default (empty-seq) 0) (1- (* rows cols)) 0))
-       (:pos (vector 0 0))))
+       (:x 0)
+       (:y 0)))
+
+(defun matrix-rows (m)
+  (@ m :rows))
+(defun matrix-cols (m)
+  (@ m :cols))
 
 (defun matrix-at (m row col)
-  (let ((m-cols (@ m :cols)))
-    (@ (@ m :data) (+ (* row m-cols) col))))
+  (@ (@ m :data) (+ (* row (matrix-cols m)) col)))
 
 (defun with-matrix-at (m row col value)
   (let ((m-cols (@ m :cols)))
-    (with m :data (with (@ m :data) (+ (* row m-cols) col) value))))
+    (with m :data (with (@ m :data) (+ (* row (matrix-cols m)) col) value))))
 
-(defun make-level (&optional (difficulty 1))
-  (let ((dim (random-in-range difficulty (+ difficulty 20))))
-    (setf *grid-dim* dim
-          *grid* (make-matrix dim dim))
+(defun matrix-size (m)
+  (size (@ m :data)))
+
+(defun matrix-rotate-ccw (m &optional (rotations 1))
+  (iter (for r from 0 below rotations)
+    (let* ((rows (matrix-rows m))
+           (cols (matrix-cols m))
+           (new-m (make-matrix cols rows)))
+      (iter (for i from 0 below rows)
+        (iter (for j from 0 below cols)
+          (setf new-m (with-matrix-at new-m (- cols 1 j) i (matrix-at m i j)))))
+      (setf m new-m)))
+  m)
+
+(defun matrix-rotate-cw (m &optional (rotations 1))
+  (iter (for r from 0 below rotations)
+    (let* ((rows (matrix-rows m))
+           (cols (matrix-cols m))
+           (new-m (make-matrix cols rows)))
+      (iter (for i from 0 below rows)
+        (iter (for j from 0 below cols)
+          (setf new-m (with-matrix-at new-m j (- rows 1 i) (matrix-at m i j)))))
+      (setf m new-m)))
+  m)
+
+(defun matrix-overlap (bottom top)
+  (iter (for i from 0 below (matrix-rows top))
+    (iter (for j from 0 below (matrix-cols top))
+      (let ((row-pos (+ i (@ top :y)))
+            (col-pos (+ j (@ top :x))))
+        (setf bottom (with-matrix-at bottom row-pos col-pos
+                       (mod (+ (matrix-at top i j)
+                               (matrix-at bottom row-pos col-pos)) 2))))))
+  bottom)
+
+(defun update-grid ()
+  (let ((grid (make-matrix (matrix-rows *grid*) (matrix-cols *grid*))))
+    (do-seq (m *matricies*)
+      (setf grid (matrix-overlap grid m)))
+    (add-event (lambda ()
+                 (setf *grid* grid)))))
+
+(defun make-level (&optional (difficulty 3))
+  (let ((dim (random-in-range difficulty (+ difficulty 5))))
+    (setf *grid* (make-matrix dim dim)
+          *final-grid* *grid*
+          *matricies* (empty-seq)
+          *selected-matrix* 0)
+
     ;; matrices
-    ;; (iter (for i from 0 below difficulty)
-    ;;   (push))
-    ))
+    (iter (for i from 0 below difficulty)
+      (let* ((m-dim (random-in-range 2 dim))
+             (el-set (random-in-range 1 (floor (/ m-dim 2.0))))
+             (m (make-matrix m-dim m-dim))
+             (data (@ m :data)))
+
+        ;; generate random matrix data
+        (iter (while (> el-set 0))
+          (iter (for i from 0 below m-dim) (while (> el-set 0))
+            (iter (for j from 0 below m-dim) (while (> el-set 0))
+              (let* ((set? (= 1 (random-in-range 1 (square m-dim))))
+                     (value (cond (set?
+                                   (decf el-set)
+                                   1)
+                                  (t
+                                   0))))
+                (setf data (with data (+ (* i m-dim) j) value))))))
+        (setf m (-> m
+                    (with :data data)
+                    (with :x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
+                    (with :y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))))
+
+        ;; add to the final grid configuration
+        (let* ((final-x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
+               (final-y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))
+               (n-rotations (random-in-range 1 3))
+               (final-m (-> m
+                            (with :x final-x)
+                            (with :y final-y)
+                            (matrix-rotate-ccw n-rotations))))
+          (setf *final-grid* (matrix-overlap *final-grid* final-m)))
+
+        ;; add new matrix
+        (setf *matricies* (with-last *matricies* m)))))
+  (update-grid))
 
 ;;; game
 (defun init ()
@@ -1129,7 +1216,6 @@ the shader did not compile an error is called."
                            nil))
   (track-vars *entities* *grid* *matricies*))
 
-
 (defun handle-input ()
   ;;debugging
   (when (or *key-actions* *mouse-button-actions*)
@@ -1156,19 +1242,39 @@ the shader did not compile an error is called."
     ;;   (setf *entities* nil))
 
     ;; ;; mouse buttons
-    (when (mouse-button-action-p :left :press)
-      (let* ((rect-width (/ *width* *grid-dim*))
-             (rect-height (/ *height* *grid-dim*))
-             (col-pos (floor (/ *cursor-x* rect-width)))
-             (row-pos (floor (/ *cursor-y* rect-height))))
-        (format t "~d ~d ~%" col-pos row-pos)
-        (add-event (lambda ()
-                     (setf *grid* (with-matrix-at *grid* row-pos col-pos
-                                    (mod (1+ (matrix-at *grid* row-pos col-pos)) 3)))
-                     (format t "~a~%" *grid*)))))
+    ;; (when (mouse-button-action-p :left :press)
+    ;;   (let* ((rect-width (/ *width* (matrix-cols *grid*)))
+    ;;          (rect-height (/ *height* (matrix-rows *grid*)))
+    ;;          (col-pos (floor (/ *cursor-x* rect-width)))
+    ;;          (row-pos (floor (/ *cursor-y* rect-height))))
+    ;;     (format t "~d ~d ~%" col-pos row-pos)
+    ;;     (add-event (lambda ()
+    ;;                  (setf *grid* (with-matrix-at *grid* row-pos col-pos
+    ;;                                 (mod (1+ (matrix-at *grid* row-pos col-pos)) 2)))))))
+
+    (when (key-action-p :space :press)
+      (add-event (lambda ()
+                   (setf *selected-matrix* (mod (1+ *selected-matrix*)
+                                                (size *matricies*))))))
+    (when (key-action-p :z :press)
+      (add-event (lambda ()
+                   (setf *matricies*
+                         (with *matricies*
+                               *selected-matrix*
+                               (matrix-rotate-ccw (@ *matricies* *selected-matrix*))))
+                   (update-grid))))
+
+    (when (key-action-p :x :press)
+      (add-event (lambda ()
+                   (setf *matricies*
+                         (with *matricies*
+                               *selected-matrix*
+                               (matrix-rotate-cw (@ *matricies* *selected-matrix*))))
+                   (update-grid))))
 
     (when (key-action-p :n :press)
-      (make-level))
+      (add-event (lambda ()
+                   (make-level))))
     ;;level debugging
     ;; (when (key-action-p :n :press)
     ;;   (next-level game))
@@ -1180,51 +1286,70 @@ the shader did not compile an error is called."
     ;; (alexandria:appendf *destructive-changes* (handle-player-input))
     ))
 
+
 (defun update ()
-  (cond ((eql *time-travel-state* +time-play+) 
-         (update-events)
-         (update-timeline))
+  (cond ((eql *time-travel-state* +time-play+)
+         ;; (update-timeline)
+         )
         ((eql *time-travel-state* +time-rewind+)
          (rewind-time))
         ((eql *time-travel-state* +time-forward+)
-         (forward-time))))
+         (forward-time)))
+  (update-events))
 
 (defun render-grid ()
-  (let* ((dim *grid-dim*)
-         (line-thickness 2.0)
+  (let* ((line-thickness 2.0)
          (line-thickness/2 (/ line-thickness 2.0))
-         (rect-width (cfloat (/ *width* dim)))
-         (rect-height (cfloat (/ *height* dim))))
-    (iter (for i from 0 to dim)
+         (rect-width (cfloat (/ *width* (matrix-cols *grid*))))
+         (rect-height (cfloat (/ *height* (matrix-rows *grid*)))))
+    (iter (for j from 0 to (matrix-cols *grid*))
       ;; vertical grid lines
-      (rect-render (vec2 (- (* i rect-width) line-thickness/2) 0.0)
+      (rect-render (vec2 (- (* j rect-width) line-thickness/2) 0.0)
                    (vec2 line-thickness (cfloat *height*))
                    (vec4 1.0 1.0 1.0 0.5)
-                   0.0)
+                   0.0))
 
+    (iter (for i from 0 to (matrix-rows *grid*))
       ;;horizontal
       (rect-render (vec2 0.0 (- (* i rect-height) line-thickness/2))
                    (vec2 (cfloat *width*) line-thickness)
                    (vec4 1.0 1.0 1.0 0.5)
-                   0.0)) 
+                   0.0))
 
-    (iter (for i from 0 below dim)
-      (iter (for j from 0 below dim)
+    (iter (for i from 0 below (matrix-rows *grid*))
+      (iter (for j from 0 below (matrix-cols *grid*))
         (rect-render (vec2 (* j rect-width) (* i rect-height))
                      (vec2 rect-width rect-height)
-                     (case (matrix-at *grid* i j)
-                       (0
-                        (vec4 0.0 0.0 0.0 0.0))
-                       (1
-                        (vec4 0.0 1.0 0.0 1.0))
-                       (2
-                        (vec4 1.0 0.0 0.0 1.0))) 
-                     (/ pi 4.0))))
+                     (cond ((= (matrix-at *final-grid* i j) 1)
+                            (if (= (matrix-at *grid* i j)
+                                   (matrix-at *final-grid* i j))
+                                (vec4 0.0 1.0 0.0 0.6)
+                                (vec4 1.0 0.0 0.0 0.6)))
+                           (t
+                            (case (matrix-at *grid* i j)
+                              (0
+                               (vec4 0.0 0.0 0.0 0.0))
+                              (1
+                               (vec4 1.0 1.0 1.0 0.9)))))
+                     0)))
+    ;; render grid lines for selected matrix
 
-    ;; matrices
-    ;; (iter (for i from 0 below difficulty)
-    ;;   (push))
-    ))
+    (let* ((selected (@ *matricies* *selected-matrix*))
+           (x (@ selected :x))
+           (y (@ selected :y))
+           (cols (matrix-cols selected))
+           (rows (matrix-rows selected)))
+      ;;vertical
+      (iter (for j from x to (1+ cols))
+        (rect-render (vec2 (- (* j rect-width) line-thickness/2) (* y rect-height))
+                     (vec2 line-thickness (* rows rect-height))
+                     (vec4 0.0 0.0 1.0 0.7)))
+
+      ;;horizontal lines
+      (iter (for i from y to (1+ rows))
+        (rect-render (vec2 (* x rect-width) (- (* i rect-height) line-thickness/2))
+                     (vec2 (* cols rect-width) line-thickness)
+                     (vec4 0.0 0.0 1.0 0.7))))))
 
 (defun render-entities (&optional (entities *entities*))
   t)
