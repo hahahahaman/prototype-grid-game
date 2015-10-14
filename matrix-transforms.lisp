@@ -980,7 +980,10 @@ the shader did not compile an error is called."
     (gl:draw-arrays :triangle-strip 0 4)
     (gl:bind-vertex-array 0)))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; entities
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (let ((id 0))
   (defun make-entity (components &optional (entities *entities*))
@@ -1029,10 +1032,14 @@ the shader did not compile an error is called."
       ;; go through COMPONENTS to see if they are in the current entity
       ;; if one is not then return NIL, else return T
       (when (iter (for c in components)
-                  (when (null (nth-value 1 (@ y c))) (return nil))
-                  (finally (return t)))
+              (when (null (nth-value 1 (@ y c))) (return nil))
+              (finally (return t)))
         (push x found)))
     (reverse found)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; events
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun add-event (func)
   (alexandria:appendf *destructive-changes* (list func)))
@@ -1046,10 +1053,15 @@ the shader did not compile an error is called."
 ;;; levels
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defenum:defenum *enum-level-state* ((+level-play+ 0)
+                                     +level-completed+))
+
+(defglobal *level-state* +level-play+)
 (defglobal *grid* (empty-map))
 (defglobal *final-grid* ())
 (defglobal *selected-matrix* 0)
 (defglobal *matricies* (empty-seq))
+(defglobal *difficulty* 2)
 
 (defun make-matrix (rows cols)
   (map (:rows rows)
@@ -1067,8 +1079,7 @@ the shader did not compile an error is called."
   (@ (@ m :data) (+ (* row (matrix-cols m)) col)))
 
 (defun with-matrix-at (m row col value)
-  (let ((m-cols (@ m :cols)))
-    (with m :data (with (@ m :data) (+ (* row (matrix-cols m)) col) value))))
+  (with m :data (with (@ m :data) (+ (* row (matrix-cols m)) col) value)))
 
 (defun matrix-size (m)
   (size (@ m :data)))
@@ -1105,12 +1116,22 @@ the shader did not compile an error is called."
                                (matrix-at bottom row-pos col-pos)) 2))))))
   bottom)
 
+(defun matrix-data-equal? (a b)
+  (let ((ad (@ a :data))
+        (bd (@ b :data)))
+    (when (= (size ad) (size bd))
+      (let ((result t))
+        (iter (for i from 0 below (size ad))
+          (when (not (= (@ ad i) (@ bd i)))
+            (setf result nil)
+            (leave)))
+        result))))
+
 (defun update-grid ()
   (let ((grid (make-matrix (matrix-rows *grid*) (matrix-cols *grid*))))
     (do-seq (m *matricies*)
       (setf grid (matrix-overlap grid m)))
-    (add-event (lambda ()
-                 (setf *grid* grid)))))
+    (setf *grid* grid)))
 
 (defun make-level (&optional (difficulty 3))
   (let ((dim (random-in-range difficulty (+ difficulty 5))))
@@ -1121,42 +1142,48 @@ the shader did not compile an error is called."
 
     ;; matrices
     (iter (for i from 0 below difficulty)
-      (let* ((m-dim (random-in-range 2 dim))
-             (el-set (random-in-range 1 (floor (/ m-dim 2.0))))
-             (m (make-matrix m-dim m-dim))
-             (data (@ m :data)))
+          (let* ((m-dim (random-in-range 2 dim))
+                 (el-set (random-in-range 1 (floor (/ m-dim 2.0))))
+                 (m (make-matrix m-dim m-dim))
+                 (data (@ m :data)))
 
-        ;; generate random matrix data
-        (iter (while (> el-set 0))
-          (iter (for i from 0 below m-dim) (while (> el-set 0))
-            (iter (for j from 0 below m-dim) (while (> el-set 0))
-              (let* ((set? (= 1 (random-in-range 1 (square m-dim))))
-                     (value (cond (set?
-                                   (decf el-set)
-                                   1)
-                                  (t
-                                   0))))
-                (setf data (with data (+ (* i m-dim) j) value))))))
-        (setf m (-> m
-                    (with :data data)
-                    (with :x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
-                    (with :y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))))
+            ;; generate random matrix data
+            (iter (while (> el-set 0))
+                  (iter (for i from 0 below m-dim) (while (> el-set 0))
+                        (iter (for j from 0 below m-dim) (while (> el-set 0))
+                              (let* ((set? (= 1 (random-in-range 1 (square m-dim))))
+                                     (value (cond (set?
+                                                   (decf el-set)
+                                                   1)
+                                                  (t
+                                                   0))))
+                                (setf data (with data (+ (* i m-dim) j) value))))))
+            (setf m (-> m
+                        (with :data data)
+                        (with :x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
+                        (with :y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))))
 
-        ;; add to the final grid configuration
-        (let* ((final-x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
-               (final-y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))
-               (n-rotations (random-in-range 1 3))
-               (final-m (-> m
-                            (with :x final-x)
-                            (with :y final-y)
-                            (matrix-rotate-ccw n-rotations))))
-          (setf *final-grid* (matrix-overlap *final-grid* final-m)))
+            ;; add to the final grid configuration
+            (let* ((final-x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
+                   (final-y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))
+                   (n-rotations (random-in-range 1 3))
+                   (final-m (-> m
+                                (with :x final-x)
+                                (with :y final-y)
+                                (matrix-rotate-ccw n-rotations))))
+              (setf *final-grid* (matrix-overlap *final-grid* final-m)))
 
-        ;; add new matrix
-        (setf *matricies* (with-last *matricies* m)))))
+            ;; add new matrix
+            (setf *matricies* (with-last *matricies* m)))))
   (update-grid))
 
 ;;; game
+(defenum:defenum *enum-game-state* ((+game-menu+ 0)
+                                    +game-play+
+                                    +game-help+))
+
+(defglobal *game-state* +game-menu+)
+
 (defun init ()
   (let ((sprite-program (make-program #p"./data/shaders/sprite.v.glsl"
                                       #p"./data/shaders/sprite.f.glsl"))
@@ -1169,9 +1196,11 @@ the shader did not compile an error is called."
     (load-program "sprite" sprite-program)
     (load-program "rect" rect-program)
 
-    (make-level)
-
     ;; textures
+    (load-texture "menu"
+                  (make-texture2d "./data/images/menu.png" t))
+    (load-texture "complete"
+                  (make-texture2d "./data/images/complete.png" t))
     ;; (load-texture "face"
     ;;               (make-texture2d "./data/images/awesomeface.png" t))
     ;; (load-texture "background"
@@ -1214,7 +1243,13 @@ the shader did not compile an error is called."
                                     0.0
                                     -1.0 1.0))
                            nil))
-  (track-vars *entities* *grid* *matricies*))
+  (track-vars *game-state*
+              *level-state*
+              *difficulty*
+              *grid*
+              *final-grid*
+              *selected-matrix*
+              *matricies*))
 
 (defun handle-input ()
   ;;debugging
@@ -1223,7 +1258,11 @@ the shader did not compile an error is called."
 
   ;; keys
   (when (key-action-p :escape :press)
-    (glfw:set-window-should-close))
+    (cond ((or (eql *game-state* +game-menu+)
+               (eql *game-state* +game-help+))
+           (glfw:set-window-should-close))
+          ((eql *game-state* +game-play+)
+           (setf *game-state* +game-help+))))
 
   (when (key-action-p :q :press)
     (rewind-pressed))
@@ -1233,9 +1272,6 @@ the shader did not compile an error is called."
     (pause-pressed))
   (when (key-action-p :r :press)
     (play-pressed))
-  ;; (when (not *deadp*)
-  ;;   (when (key-action-p :r :press)
-  ;;     (play-pressed)))
 
   (when (eql *time-travel-state* +time-play+)
     ;; (when (key-action-p :c :press)
@@ -1252,82 +1288,109 @@ the shader did not compile an error is called."
     ;;                  (setf *grid* (with-matrix-at *grid* row-pos col-pos
     ;;                                 (mod (1+ (matrix-at *grid* row-pos col-pos)) 2)))))))
 
-    (when (key-action-p :space :press)
-      (add-event (lambda ()
-                   (setf *selected-matrix* (mod (1+ *selected-matrix*)
-                                                (size *matricies*))))))
-    (when (key-action-p :z :press)
-      (add-event (lambda ()
-                   (setf *matricies*
-                         (with *matricies*
-                               *selected-matrix*
-                               (matrix-rotate-ccw (@ *matricies* *selected-matrix*)))))))
+    ;; when key press on menu screen create new level
+    (when (eql *game-state* +game-menu+)
+      (when (key-action-p :space :press)
+        (setf *game-state* +game-play+)
+        (make-level)))
 
-    (when (key-action-p :x :press)
-      (add-event (lambda ()
-                   (setf *matricies*
-                         (with *matricies*
-                               *selected-matrix*
-                               (matrix-rotate-cw (@ *matricies* *selected-matrix*)))))))
+    ;; go back to old game board
+    (when (eql *game-state* +game-help+)
+      (when (key-action-p :space :press)
+        (setf *game-state* +game-play+)))
 
-    (when (key-action-p :up :press)
-      (let ((selected (@ *matricies* *selected-matrix*)))
-        (when (>= (1- (@ selected :y)) 0)
+    (when (eql *game-state* +game-play+)
+      (when (eql *level-state* +level-play+)
+        (when (key-action-p :z :press)
           (add-event (lambda ()
                        (setf *matricies*
-                             (with *matricies* *selected-matrix*
-                                   (with selected :y (1- (@ selected :y))))))))))
+                             (with *matricies*
+                                   *selected-matrix*
+                                   (matrix-rotate-ccw
+                                    (@ *matricies* *selected-matrix*)))))))
 
-    (when (key-action-p :down :press)
-      (let ((selected (@ *matricies* *selected-matrix*)))
-        (when (<= (+ (matrix-rows selected) (@ selected :y) 1) (matrix-rows *grid*))
+        (when (key-action-p :x :press)
           (add-event (lambda ()
                        (setf *matricies*
-                             (with *matricies* *selected-matrix*
-                                   (with selected :y (1+ (@ selected :y))))))))))
+                             (with *matricies*
+                                   *selected-matrix*
+                                   (matrix-rotate-cw
+                                    (@ *matricies* *selected-matrix*)))))))
 
-    (when (key-action-p :left :press)
-      (let ((selected (@ *matricies* *selected-matrix*)))
-        (when (>= (1- (@ selected :x)) 0)
+        (when (key-action-p :f :press)
           (add-event (lambda ()
-                       (setf *matricies*
-                             (with *matricies* *selected-matrix*
-                                   (with selected :x (1- (@ selected :x))))))))))
+                       (setf *selected-matrix* (mod (1- *selected-matrix*)
+                                                    (size *matricies*))))))
 
-    (when (key-action-p :right :press)
-      (let ((selected (@ *matricies* *selected-matrix*)))
-        (when (<= (+ (matrix-cols selected) (@ selected :x) 1) (matrix-cols *grid*))
+        (when (key-action-p :v :press)
           (add-event (lambda ()
-                       (setf *matricies*
-                             (with *matricies* *selected-matrix*
-                                   (with selected :x (1+ (@ selected :x))))))))))
+                       (setf *selected-matrix* (mod (1+ *selected-matrix*)
+                                                    (size *matricies*))))))
 
-    (when (key-action-p :n :press)
-      (add-event (lambda ()
-                   (make-level))))
-    ;;level debugging
-    ;; (when (key-action-p :n :press)
-    ;;   (next-level game))
-    ;; (when (key-action-p :b :press)
-    ;;   (next-level game -1))
-    ;; (when (key-action-p :m :press)
-    ;;   (next-level game 0))
+        (when (key-action-p :up :press)
+          (let ((selected (@ *matricies* *selected-matrix*)))
+            (when (>= (1- (@ selected :y)) 0)
+              (add-event (lambda ()
+                           (setf *matricies*
+                                 (with *matricies* *selected-matrix*
+                                       (with selected :y (1- (@ selected :y))))))))))
 
-    ;; (alexandria:appendf *destructive-changes* (handle-player-input))
-    ))
+        (when (key-action-p :down :press)
+          (let ((selected (@ *matricies* *selected-matrix*)))
+            (when (<= (+ (matrix-rows selected) (@ selected :y) 1) (matrix-rows *grid*))
+              (add-event (lambda ()
+                           (setf *matricies*
+                                 (with *matricies* *selected-matrix*
+                                       (with selected :y (1+ (@ selected :y))))))))))
 
+        (when (key-action-p :left :press)
+          (let ((selected (@ *matricies* *selected-matrix*)))
+            (when (>= (1- (@ selected :x)) 0)
+              (add-event (lambda ()
+                           (setf *matricies*
+                                 (with *matricies* *selected-matrix*
+                                       (with selected :x (1- (@ selected :x))))))))))
+
+        (when (key-action-p :right :press)
+          (let ((selected (@ *matricies* *selected-matrix*)))
+            (when (<= (+ (matrix-cols selected) (@ selected :x) 1) (matrix-cols *grid*))
+              (add-event (lambda ()
+                           (setf *matricies*
+                                 (with *matricies* *selected-matrix*
+                                       (with selected :x (1+ (@ selected :x))))))))))
+
+        (when (key-action-p :n :press)
+          (setf *level-state* +level-completed+))))))
+
+(defun level-completed? ()
+  (matrix-data-equal? *grid* *final-grid*))
+
+(let ((time 1.0)
+      (accum 0.0))
+  (defun level-complete-pause-over? (dt)
+    (incf accum dt)
+    (let ((result (>= accum time)))
+      (when result
+        (setf accum 0.0))
+      result)))
 
 (defun update ()
   (cond ((eql *time-travel-state* +time-play+)
-         ;; (update-timeline)
-         (update-events)
-         (update-grid)
-         )
+         (update-timeline)
+         (when (eql *game-state* +game-play+)
+           (when (eql *level-state* +level-play+)
+             (update-events)
+             (update-grid)
+             (when (level-completed?)
+               (setf *level-state* +level-completed+)))
+           (when (eql *level-state* +level-completed+)
+             (when (level-complete-pause-over? *dt*)
+               (setf *level-state* +level-play+)
+               (make-level (incf *difficulty*))))))
         ((eql *time-travel-state* +time-rewind+)
          (rewind-time))
         ((eql *time-travel-state* +time-forward+)
-         (forward-time)))
-  )
+         (forward-time))))
 
 (defun render-grid ()
   (let* ((line-thickness 2.0)
@@ -1386,12 +1449,29 @@ the shader did not compile an error is called."
 (defun render-entities (&optional (entities *entities*))
   t)
 
+(defun render-menu ()
+  (sprite-render (get-texture "menu")
+                 (vec2 0.0 0.0)
+                 (vec2 (cfloat *width*) (cfloat *height*))
+                 (vec4 1.0 1.0 1.0 0.9)))
+(defun render-complete-screen ()
+  (sprite-render (get-texture "complete")
+                 (vec2 0.0 0.0)
+                 (vec2 (cfloat *width*) (cfloat *height*))
+                 (vec4 1.0 1.0 1.0 0.94)))
+
 (defun render ()
   (when (not (eql *time-travel-state* +time-paused+))
     (gl:clear-color 0.0 0.0 0.0 1.0)
     (gl:clear :color-buffer-bit)
-    (render-grid)
-    (render-entities)))
+    (when (eql *game-state* +game-play+)
+      ;; (when (eql *level-state* +level-play+))
+      (render-grid)
+      (when (eql *level-state* +level-completed+)
+        (render-complete-screen)))
+    (when (or (eql *game-state* +game-menu+)
+              (eql *game-state* +game-help+))
+      (render-menu))))
 
 (defun cleanup ()
   (clear-resources *program-manager*)
