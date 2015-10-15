@@ -1056,6 +1056,11 @@ the shader did not compile an error is called."
 (defenum:defenum *enum-level-state* ((+level-play+ 0)
                                      +level-completed+))
 
+(defenum:defenum *enum-rotation-state* ((+rotation-up+ 0)
+                                        +rotation-left+
+                                        +rotation-down+
+                                        +rotation-right+))
+
 (defglobal *level-state* +level-play+)
 (defglobal *grid* (empty-map))
 (defglobal *final-grid* ())
@@ -1063,12 +1068,14 @@ the shader did not compile an error is called."
 (defglobal *matricies* (empty-seq))
 (defglobal *difficulty* 2)
 
+
 (defun make-matrix (rows cols)
   (map (:rows rows)
        (:cols cols)
        (:data (with (with-default (empty-seq) 0) (1- (* rows cols)) 0))
        (:x 0)
-       (:y 0)))
+       (:y 0)
+       (:rotation-state +rotation-up+)))
 
 (defun matrix-rows (m)
   (@ m :rows))
@@ -1088,7 +1095,7 @@ the shader did not compile an error is called."
   (iter (for r from 0 below rotations)
     (let* ((rows (matrix-rows m))
            (cols (matrix-cols m))
-           (new-m m))
+           (new-m (with m :rotation-state (mod (1+ (@ m :rotation-state)) 4))))
       (iter (for i from 0 below rows)
         (iter (for j from 0 below cols)
           (setf new-m (with-matrix-at new-m (- cols 1 j) i (matrix-at m i j)))))
@@ -1099,7 +1106,7 @@ the shader did not compile an error is called."
   (iter (for r from 0 below rotations)
     (let* ((rows (matrix-rows m))
            (cols (matrix-cols m))
-           (new-m m))
+           (new-m (with m :rotation-state (mod (1- (@ m :rotation-state)) 4))))
       (iter (for i from 0 below rows)
         (iter (for j from 0 below cols)
           (setf new-m (with-matrix-at new-m j (- rows 1 i) (matrix-at m i j)))))
@@ -1134,47 +1141,49 @@ the shader did not compile an error is called."
     (setf *grid* grid)))
 
 (defun make-level (&optional (difficulty 3))
-  (let ((dim (random-in-range difficulty (+ difficulty 5))))
+  (let ((dim (random-in-range difficulty (round (* 1.7 difficulty)))))
     (setf *grid* (make-matrix dim dim)
           *final-grid* *grid*
           *matricies* (empty-seq)
           *selected-matrix* 0)
 
     ;; matrices
-    (iter (for i from 0 below difficulty)
-          (let* ((m-dim (random-in-range 2 dim))
-                 (el-set (random-in-range 1 (floor (/ m-dim 2.0))))
-                 (m (make-matrix m-dim m-dim))
-                 (data (@ m :data)))
+    (iter (for i from 0 below (* difficulty 2))
+      (let* ((m-dim (random-in-range 2 dim)) ;; matrix dimension
+             ;; between 1 and half of the matrix set
+             (el-set (random-in-range 1 (floor (/ (square m-dim) 2.0)))) 
+             (m (make-matrix m-dim m-dim))
+             (data (@ m :data)))
 
-            ;; generate random matrix data
-            (iter (while (> el-set 0))
-                  (iter (for i from 0 below m-dim) (while (> el-set 0))
-                        (iter (for j from 0 below m-dim) (while (> el-set 0))
-                              (let* ((set? (= 1 (random-in-range 1 (square m-dim))))
-                                     (value (cond (set?
-                                                   (decf el-set)
-                                                   1)
-                                                  (t
-                                                   0))))
-                                (setf data (with data (+ (* i m-dim) j) value))))))
-            (setf m (-> m
-                        (with :data data)
-                        (with :x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
-                        (with :y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))))
+        ;; generate random matrix data
+        (iter (while (> el-set 0))
+          (iter (for i from 0 below m-dim) (while (> el-set 0))
+            (iter (for j from 0 below m-dim) (while (> el-set 0))
+              (let* ((set? (= 1 (random-in-range 1 (square m-dim))))
+                     (value (cond (set?
+                                   (decf el-set)
+                                   1)
+                                  (t
+                                   0))))
+                (setf data (with data (+ (* i m-dim) j) value))))))
+        ;; give matrix random position
+        (setf m (-> m
+                    (with :data data)
+                    (with :x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
+                    (with :y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))))
 
-            ;; add to the final grid configuration
-            (let* ((final-x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
-                   (final-y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))
-                   (n-rotations (random-in-range 1 3))
-                   (final-m (-> m
-                                (with :x final-x)
-                                (with :y final-y)
-                                (matrix-rotate-ccw n-rotations))))
-              (setf *final-grid* (matrix-overlap *final-grid* final-m)))
+        ;; add to the final grid configuration
+        (let* ((final-x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
+               (final-y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))
+               (n-rotations (random-in-range 0 3))
+               (final-m (-> m
+                            (with :x final-x)
+                            (with :y final-y)
+                            (matrix-rotate-ccw n-rotations))))
+          (setf *final-grid* (matrix-overlap *final-grid* final-m)))
 
-            ;; add new matrix
-            (setf *matricies* (with-last *matricies* m)))))
+        ;; add new matrix
+        (setf *matricies* (with-last *matricies* m)))))
   (update-grid))
 
 ;;; game
@@ -1199,18 +1208,10 @@ the shader did not compile an error is called."
     ;; textures
     (load-texture "menu"
                   (make-texture2d "./data/images/menu.png" t))
+    (load-texture "help"
+                  (make-texture2d "./data/images/help.png" t))
     (load-texture "complete"
                   (make-texture2d "./data/images/complete.png" t))
-    ;; (load-texture "face"
-    ;;               (make-texture2d "./data/images/awesomeface.png" t))
-    ;; (load-texture "background"
-    ;;               (make-texture2d "./data/images/background.jpg" nil))
-    ;; (load-texture "block"
-    ;;               (make-texture2d "./data/images/block.png" nil))
-    ;; (load-texture "block-solid"
-    ;;               (make-texture2d "./data/images/block_solid.png" nil))
-    ;; (load-texture "paddle"
-    ;;               (make-texture2d "./data/images/paddle.png" t))
 
     ;; use current program
     (use sprite-program)
@@ -1251,6 +1252,10 @@ the shader did not compile an error is called."
               *selected-matrix*
               *matricies*))
 
+(defun exit-to-menu ()
+  (setf *game-state* +game-menu+)
+  (setf *difficulty* 2))
+
 (defun handle-input ()
   ;;debugging
   (when (or *key-actions* *mouse-button-actions*)
@@ -1258,11 +1263,12 @@ the shader did not compile an error is called."
 
   ;; keys
   (when (key-action-p :escape :press)
-    (cond ((or (eql *game-state* +game-menu+)
-               (eql *game-state* +game-help+))
+    (cond ((eql *game-state* +game-menu+)
            (glfw:set-window-should-close))
+          ((eql *game-state* +game-help+)
+           (exit-to-menu))
           ((eql *game-state* +game-play+)
-           (setf *game-state* +game-help+))))
+           (exit-to-menu))))
 
   (when (key-action-p :q :press)
     (rewind-pressed))
@@ -1292,7 +1298,11 @@ the shader did not compile an error is called."
     (when (eql *game-state* +game-menu+)
       (when (key-action-p :space :press)
         (setf *game-state* +game-play+)
-        (make-level)))
+        (make-level *difficulty*))
+      (when (or (key-action-p :left-shift :press)
+                (key-action-p :right-shift :press))
+        (setf *game-state* +game-help+)
+        (make-level *difficulty*)))
 
     ;; go back to old game board
     (when (eql *game-state* +game-help+)
@@ -1301,6 +1311,8 @@ the shader did not compile an error is called."
 
     (when (eql *game-state* +game-play+)
       (when (eql *level-state* +level-play+)
+
+        ;;; rotate
         (when (key-action-p :z :press)
           (add-event (lambda ()
                        (setf *matricies*
@@ -1317,6 +1329,7 @@ the shader did not compile an error is called."
                                    (matrix-rotate-cw
                                     (@ *matricies* *selected-matrix*)))))))
 
+        ;;; switch
         (when (key-action-p :f :press)
           (add-event (lambda ()
                        (setf *selected-matrix* (mod (1- *selected-matrix*)
@@ -1327,6 +1340,7 @@ the shader did not compile an error is called."
                        (setf *selected-matrix* (mod (1+ *selected-matrix*)
                                                     (size *matricies*))))))
 
+        ;;; move
         (when (key-action-p :up :press)
           (let ((selected (@ *matricies* *selected-matrix*)))
             (when (>= (1- (@ selected :y)) 0)
@@ -1359,8 +1373,14 @@ the shader did not compile an error is called."
                                  (with *matricies* *selected-matrix*
                                        (with selected :x (1+ (@ selected :x))))))))))
 
+        ;;; next level
         (when (key-action-p :n :press)
-          (setf *level-state* +level-completed+))))))
+          (setf *level-state* +level-completed+)))
+
+      ;;; help menu
+      (when (or (key-action-p :left-shift :press)
+                (key-action-p :right-shift :press))
+        (setf *game-state* +game-help+)))))
 
 (defun level-completed? ()
   (matrix-data-equal? *grid* *final-grid*))
@@ -1428,37 +1448,120 @@ the shader did not compile an error is called."
                                (vec4 1.0 1.0 1.0 0.9)))))
                      0)))
     ;; render grid lines for selected matrix
+    ))
 
-    (let* ((selected (@ *matricies* *selected-matrix*))
-           (x (@ selected :x))
-           (y (@ selected :y))
-           (cols (matrix-cols selected))
-           (rows (matrix-rows selected)))
-      ;;vertical
-      (iter (for j from x to (+ x cols))
-        (rect-render (vec2 (- (* j rect-width) line-thickness/2) (* y rect-height))
-                     (vec2 line-thickness (* rows rect-height))
-                     (vec4 0.0 0.0 1.0 0.7)))
+(defun render-selected-grid ()
+  (let* ((line-thickness 8.0)
+         (line-thickness/2 (/ line-thickness 2.0))
+         (rect-width (cfloat (/ *width* (matrix-cols *grid*))))
+         (rect-height (cfloat (/ *height* (matrix-rows *grid*))))
+         (selected (@ *matricies* *selected-matrix*))
+         (x (@ selected :x))
+         (y (@ selected :y))
+         (cols (matrix-cols selected))
+         (rows (matrix-rows selected))
+         (selected-color (vec4 0.0 0.0 1.0 0.9))
+         (rotation-state (@ selected :rotation-state))
+         (angle (cond ((eql rotation-state +rotation-up+)
+                       0.0)
+                      ((eql rotation-state +rotation-left+)
+                       (/ pi 2))
+                      ((eql rotation-state +rotation-down+)
+                       (/ pi 3))
+                      ((eql rotation-state +rotation-right+)
+                       (/ pi -5)))))
+    ;;vertical
+    (iter (for j from x to (+ x cols))
+      (rect-render (vec2 (- (* j rect-width) line-thickness/2) (* y rect-height))
+                   (vec2 line-thickness (* rows rect-height))
+                   selected-color))
 
-      ;;horizontal lines
-      (iter (for i from y to (+ y rows))
-        (rect-render (vec2 (* x rect-width) (- (* i rect-height) line-thickness/2))
-                     (vec2 (* cols rect-width) line-thickness)
-                     (vec4 0.0 0.0 1.0 0.7))))))
+    ;;horizontal lines
+    (iter (for i from y to (+ y rows))
+      (rect-render (vec2 (* x rect-width) (- (* i rect-height) line-thickness/2))
+                   (vec2 (* cols rect-width) line-thickness)
+                   (vec4 0.0 0.0 1.0 0.7)))
+    ;; render selected matrix squares
+    (let* ((size-div 6.0)
+           (swidth (/ rect-width size-div))
+           (sheight (/ rect-height size-div)))
+      (iter (for i from 0 below rows)
+        (iter (for j from 0 below cols)
+          (when (= (matrix-at selected i j) 1)
+            ;; render an inner triangle
+            (rect-render (vec2 (+ (* x rect-width) ;; x position of grid
+                                  (* j rect-width) ;; x position of square
+                                  (/ (- rect-width swidth) 2.0) ;; x of inner object
+                                  (* swidth 0.32))
+                               (+ (* y rect-height) ;; y of grid
+                                  (* i rect-height) ;; y of square
+                                  (/ (- rect-height sheight) 2.0) ;; y of inner object
+                                  ))
+                         (vec2 line-thickness sheight)
+                         selected-color
+                         (+ angle (/ pi 7.0)))
+            (rect-render (vec2 (+ (* x rect-width) ;; x position of grid
+                                  (* j rect-width) ;; x position of square
+                                  (/ (- rect-width swidth) 2.0) ;; x of inner object
+                                  (* swidth 0.7))
+                               (+ (* y rect-height) ;; y of grid
+                                  (* i rect-height) ;; y of square
+                                  (/ (- rect-height sheight) 2.0) ;; y of inner object
+                                  ))
+                         (vec2 line-thickness sheight)
+                         selected-color
+                         (+ angle (/ pi -7.0)))
+            (rect-render (vec2 (+ (* x rect-width) ;; x position of grid
+                                  (* j rect-width) ;; x position of square
+                                  (/ (- rect-width swidth) 2.0) ;; x of inner object
+                                  (/ swidth 2))
+                               (+ (* y rect-height) ;; y of grid
+                                  (* i rect-height) ;; y of square
+                                  (/ (- rect-height sheight) 2.0) ;; y of inner object
+                                  (/ sheight 2)
+                                  ))
+                         (vec2 line-thickness sheight)
+                         selected-color
+                         (+ angle (/ pi 2)))))))))
 
 (defun render-entities (&optional (entities *entities*))
   t)
 
 (defun render-menu ()
+  (let* ((dim 10)
+         (line-thickness 2.0)
+         (line-thickness/2 (/ line-thickness 2.0))
+         (line-color (vec4 1.0 1.0 1.0 0.3))
+         (rect-width (cfloat (/ *width* dim)))
+         (rect-height (cfloat (/ *height* dim))))
+
+    (iter (for i from 0 to dim)
+      ;; vertical grid lines
+      (rect-render (vec2 (- (* i rect-width) line-thickness/2) 0.0)
+                   (vec2 line-thickness (cfloat *height*))
+                   line-color)
+
+      ;;horizontal
+      (rect-render (vec2 0.0 (- (* i rect-height) line-thickness/2))
+                   (vec2 (cfloat *width*) line-thickness)
+                   line-color)))
+
   (sprite-render (get-texture "menu")
                  (vec2 0.0 0.0)
                  (vec2 (cfloat *width*) (cfloat *height*))
-                 (vec4 1.0 1.0 1.0 0.9)))
+                 (vec4 1.0 1.0 1.0 1.0)))
+
+(defun render-help ()
+  (sprite-render (get-texture "help")
+                 (vec2 0.0 0.0)
+                 (vec2 (cfloat *width*) (cfloat *height*))
+                 (vec4 1.0 1.0 1.0 1.0)))
+
 (defun render-complete-screen ()
   (sprite-render (get-texture "complete")
                  (vec2 0.0 0.0)
                  (vec2 (cfloat *width*) (cfloat *height*))
-                 (vec4 1.0 1.0 1.0 0.94)))
+                 (vec4 1.0 1.0 1.0 0.8)))
 
 (defun render ()
   (when (not (eql *time-travel-state* +time-paused+))
@@ -1467,11 +1570,13 @@ the shader did not compile an error is called."
     (when (eql *game-state* +game-play+)
       ;; (when (eql *level-state* +level-play+))
       (render-grid)
+      (render-selected-grid)
       (when (eql *level-state* +level-completed+)
         (render-complete-screen)))
-    (when (or (eql *game-state* +game-menu+)
-              (eql *game-state* +game-help+))
-      (render-menu))))
+    (when (eql *game-state* +game-menu+)
+      (render-menu))
+    (when (eql *game-state* +game-help+)
+      (render-help))))
 
 (defun cleanup ()
   (clear-resources *program-manager*)
@@ -1479,7 +1584,7 @@ the shader did not compile an error is called."
   t)
 
 (defun game ()
-  (glfw:with-init-window (:title "window"
+  (glfw:with-init-window (:title "mt"
                           :width *width*
                           :height *height*
                           :opengl-forward-compat t
@@ -1516,7 +1621,7 @@ the shader did not compile an error is called."
     (iter (until (glfw:window-should-close-p))
       (update-swank)
       ;; give some fps data in title
-      (update-window-title cl-glfw3:*window* "window")
+      (update-window-title cl-glfw3:*window* "mt")
 
       (glfw:poll-events)
 
