@@ -1148,10 +1148,10 @@ the shader did not compile an error is called."
           *selected-matrix* 0)
 
     ;; matrices
-    (iter (for i from 0 below (* difficulty 2))
+    (iter (for i from 0 below (round (* difficulty 1.3)))
       (let* ((m-dim (random-in-range 2 dim)) ;; matrix dimension
              ;; between 1 and half of the matrix set
-             (el-set (random-in-range 1 (floor (/ (square m-dim) 2.0)))) 
+             (el-set (random-in-range 1 (round (/ (square m-dim) 2.0)))) 
              (m (make-matrix m-dim m-dim))
              (data (@ m :data)))
 
@@ -1484,7 +1484,8 @@ the shader did not compile an error is called."
     ;; render selected matrix squares
     (let* ((size-div 6.0)
            (swidth (/ rect-width size-div))
-           (sheight (/ rect-height size-div)))
+           (sheight (/ rect-height size-div))
+           (line-thickness 3.0))
       (iter (for i from 0 below rows)
         (iter (for j from 0 below cols)
           (when (= (matrix-at selected i j) 1)
