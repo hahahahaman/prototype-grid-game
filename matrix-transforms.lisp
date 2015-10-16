@@ -1194,6 +1194,7 @@ the shader did not compile an error is called."
 (defglobal *game-state* +game-menu+)
 
 (defun init ()
+  (setf *random-state* (make-random-state t))
   (let ((sprite-program (make-program #p"./data/shaders/sprite.v.glsl"
                                       #p"./data/shaders/sprite.f.glsl"))
         (rect-program (make-program #p"./data/shaders/rect.v.glsl"

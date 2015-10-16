@@ -1,9 +1,9 @@
 ;;;; matrix-transforms.asd
 
 (asdf:defsystem #:matrix-transforms
-  :description "Describe matrix-transforms here"
-  :author "Your Name <your.name@example.com>"
-  :license "Specify license here"
+  :description "puzzling"
+  :author "Ed Ye <hahahadude@gmail.com>"
+  :license "licenseless Rider"
   :depends-on (#:alexandria
                #:cl-glfw3
                #:cl-opengl
@@ -11,7 +11,8 @@
                #:fset
                #:glkit
                #:trivial-garbage
-               #:defenum)
+               #:defenum
+               #:swank)
   :serial t
   :components ((:file "package")
                (:file "matrix-transforms")))
