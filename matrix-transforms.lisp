@@ -98,6 +98,8 @@
 (defglobal *entities* (empty-map))
 (defglobal *destructive-changes* ())
 
+(defglobal *debug* nil)
+
 ;;; utils
 (let* ((max-samples 500)
        (samples (make-array max-samples
@@ -142,7 +144,7 @@
 
 (defun update-window-title (window title)
   (cl-glfw3:set-window-title
-   (format nil "~A | fps: ~A | time: ~A | time-travel-state: ~A |"
+   (format nil "~A | fps: ~A | time: ~A | time-travel-state: ~A | level: ~A | grid: ~A / ~A"
            title
            (round (average-fps))
            *current-frame*
@@ -155,7 +157,10 @@
                           (aref *time-speed-multiplier* *time-speed-index*)))
                  ((eql *time-travel-state* +time-rewind+)
                   (format nil "REWIND x~d"
-                          (aref *time-speed-multiplier* *time-speed-index*)))))
+                          (aref *time-speed-multiplier* *time-speed-index*))))
+           (- *difficulty* 2)
+           (1+ *selected-matrix*)
+           (size *matricies*))
    window))
 
 (defun initialize-globals ()
@@ -216,6 +221,10 @@ Remember to free gl-array afterwards."
   (* x x))
 (defun cube (x)
   (* x x x))
+
+(defun dist-mod (a b modulo)
+  "Distance between A and B, when mod."
+  (min (mod (- a b) modulo) (mod (- b a) modulo)))
 
 (defun random-in-range (start end)
   "Random number between start and end inclusive."
@@ -1068,14 +1077,14 @@ the shader did not compile an error is called."
 (defglobal *matricies* (empty-seq))
 (defglobal *difficulty* 2)
 
-
 (defun make-matrix (rows cols)
   (map (:rows rows)
        (:cols cols)
        (:data (with (with-default (empty-seq) 0) (1- (* rows cols)) 0))
        (:x 0)
        (:y 0)
-       (:rotation-state +rotation-up+)))
+       (:rotation-state +rotation-up+)
+       (:highlight-color (vec4 0.0 0.0 0.0 0.0))))
 
 (defun matrix-rows (m)
   (@ m :rows))
@@ -1170,7 +1179,11 @@ the shader did not compile an error is called."
         (setf m (-> m
                     (with :data data)
                     (with :x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
-                    (with :y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))))
+                    (with :y (random-in-range 0 (- (matrix-rows *grid*) m-dim)))
+                    (with :highlight-color (vec4 (random-in-range 0.0 0.6)
+                                                 (random-in-range 0.0 0.6)
+                                                 (random-in-range 0.0 0.6)
+                                                 0.0))))
 
         ;; add to the final grid configuration
         (let* ((final-x (random-in-range 0 (- (matrix-cols *grid*) m-dim)))
@@ -1271,14 +1284,18 @@ the shader did not compile an error is called."
           ((eql *game-state* +game-play+)
            (exit-to-menu))))
 
-  (when (key-action-p :q :press)
-    (rewind-pressed))
-  (when (key-action-p :w :press)
-    (forward-pressed))
-  (when (key-action-p :e :press)
-    (pause-pressed))
-  (when (key-action-p :r :press)
-    (play-pressed))
+  (when (key-action-p :f1 :press)
+    (setf *debug* (not *debug*)))
+
+  (when *debug*
+    (when (key-action-p :q :press)
+      (rewind-pressed)) 
+    (when (key-action-p :w :press)
+      (forward-pressed))
+    (when (key-action-p :e :press)
+      (pause-pressed))
+    (when (key-action-p :r :press)
+      (play-pressed)))
 
   (when (eql *time-travel-state* +time-play+)
     ;; (when (key-action-p :c :press)
@@ -1418,19 +1435,19 @@ the shader did not compile an error is called."
          (line-thickness/2 (/ line-thickness 2.0))
          (rect-width (cfloat (/ *width* (matrix-cols *grid*))))
          (rect-height (cfloat (/ *height* (matrix-rows *grid*)))))
-    (iter (for j from 0 to (matrix-cols *grid*))
-      ;; vertical grid lines
-      (rect-render (vec2 (- (* j rect-width) line-thickness/2) 0.0)
-                   (vec2 line-thickness (cfloat *height*))
-                   (vec4 1.0 1.0 1.0 0.5)
-                   0.0))
+    ;; (iter (for j from 0 to (matrix-cols *grid*))
+    ;;   ;; vertical grid lines
+    ;;   (rect-render (vec2 (- (* j rect-width) line-thickness/2) 0.0)
+    ;;                (vec2 line-thickness (cfloat *height*))
+    ;;                (vec4 1.0 1.0 1.0 0.5)
+    ;;                0.0))
 
-    (iter (for i from 0 to (matrix-rows *grid*))
-      ;;horizontal
-      (rect-render (vec2 0.0 (- (* i rect-height) line-thickness/2))
-                   (vec2 (cfloat *width*) line-thickness)
-                   (vec4 1.0 1.0 1.0 0.5)
-                   0.0))
+    ;; (iter (for i from 0 to (matrix-rows *grid*))
+    ;;   ;;horizontal
+    ;;   (rect-render (vec2 0.0 (- (* i rect-height) line-thickness/2))
+    ;;                (vec2 (cfloat *width*) line-thickness)
+    ;;                (vec4 1.0 1.0 1.0 0.5)
+    ;;                0.0))
 
     (iter (for i from 0 below (matrix-rows *grid*))
       (iter (for j from 0 below (matrix-cols *grid*))
@@ -1447,22 +1464,19 @@ the shader did not compile an error is called."
                                (vec4 0.0 0.0 0.0 0.0))
                               (1
                                (vec4 1.0 1.0 1.0 0.9)))))
-                     0)))
-    ;; render grid lines for selected matrix
-    ))
+                     0)))))
 
-(defun render-selected-grid ()
-  (let* ((line-thickness 8.0)
-         (line-thickness/2 (/ line-thickness 2.0))
+(defun render-matrix (matrix line-thickness color size-div)
+  (let* ((line-thickness/2 (/ line-thickness 2.0))
          (rect-width (cfloat (/ *width* (matrix-cols *grid*))))
          (rect-height (cfloat (/ *height* (matrix-rows *grid*))))
-         (selected (@ *matricies* *selected-matrix*))
-         (x (@ selected :x))
-         (y (@ selected :y))
-         (cols (matrix-cols selected))
-         (rows (matrix-rows selected))
-         (selected-color (vec4 0.0 0.0 1.0 0.9))
-         (rotation-state (@ selected :rotation-state))
+         (swidth (* rect-width size-div))
+         (sheight (* rect-height size-div))
+         (x (@ matrix :x))
+         (y (@ matrix :y))
+         (cols (matrix-cols matrix))
+         (rows (matrix-rows matrix))
+         (rotation-state (@ matrix :rotation-state))
          (angle (cond ((eql rotation-state +rotation-up+)
                        0.0)
                       ((eql rotation-state +rotation-left+)
@@ -1475,59 +1489,89 @@ the shader did not compile an error is called."
     (iter (for j from x to (+ x cols))
       (rect-render (vec2 (- (* j rect-width) line-thickness/2) (* y rect-height))
                    (vec2 line-thickness (* rows rect-height))
-                   selected-color))
+                   color))
 
     ;;horizontal lines
     (iter (for i from y to (+ y rows))
       (rect-render (vec2 (* x rect-width) (- (* i rect-height) line-thickness/2))
                    (vec2 (* cols rect-width) line-thickness)
-                   (vec4 0.0 0.0 1.0 0.7)))
-    ;; render selected matrix squares
-    (let* ((size-div 6.0)
-           (swidth (/ rect-width size-div))
-           (sheight (/ rect-height size-div))
-           (line-thickness 3.0))
-      (iter (for i from 0 below rows)
-        (iter (for j from 0 below cols)
-          (when (= (matrix-at selected i j) 1)
-            ;; render an inner triangle
-            (rect-render (vec2 (+ (* x rect-width) ;; x position of grid
-                                  (* j rect-width) ;; x position of square
-                                  (/ (- rect-width swidth) 2.0) ;; x of inner object
-                                  (* swidth 0.32))
-                               (+ (* y rect-height) ;; y of grid
-                                  (* i rect-height) ;; y of square
-                                  (/ (- rect-height sheight) 2.0) ;; y of inner object
-                                  ))
-                         (vec2 line-thickness sheight)
-                         selected-color
-                         (+ angle (/ pi 7.0)))
-            (rect-render (vec2 (+ (* x rect-width) ;; x position of grid
-                                  (* j rect-width) ;; x position of square
-                                  (/ (- rect-width swidth) 2.0) ;; x of inner object
-                                  (* swidth 0.7))
-                               (+ (* y rect-height) ;; y of grid
-                                  (* i rect-height) ;; y of square
-                                  (/ (- rect-height sheight) 2.0) ;; y of inner object
-                                  ))
-                         (vec2 line-thickness sheight)
-                         selected-color
-                         (+ angle (/ pi -7.0)))
-            (rect-render (vec2 (+ (* x rect-width) ;; x position of grid
-                                  (* j rect-width) ;; x position of square
-                                  (/ (- rect-width swidth) 2.0) ;; x of inner object
-                                  (/ swidth 2))
-                               (+ (* y rect-height) ;; y of grid
-                                  (* i rect-height) ;; y of square
-                                  (/ (- rect-height sheight) 2.0) ;; y of inner object
-                                  (/ sheight 2)
-                                  ))
-                         (vec2 line-thickness sheight)
-                         selected-color
-                         (+ angle (/ pi 2)))))))))
+                   color))
 
-(defun render-entities (&optional (entities *entities*))
-  t)
+    (iter (for i from 0 below rows)
+      (iter (for j from 0 below cols)
+        (when (= (matrix-at matrix i j) 1)
+          ;; render an inner triangle
+          (rect-render
+           (vec2 (+ (* x rect-width) ;; x position of grid
+                    (* j rect-width) ;; x position of square
+                    (/ (- rect-width swidth) 2.0) ;; x of inner object
+                    (* swidth 0.32))
+                 (+ (* y rect-height) ;; y of grid
+                    (* i rect-height) ;; y of square
+                    (/ (- rect-height sheight) 2.0) ;; y of inner object
+                    ))
+           (vec2 line-thickness sheight)
+           color
+           (+ angle (/ pi 7.0)))
+          (rect-render
+           (vec2 (+ (* x rect-width) ;; x position of grid
+                    (* j rect-width) ;; x position of square
+                    (/ (- rect-width swidth) 2.0) ;; x of inner object
+                    (* swidth 0.7))
+                 (+ (* y rect-height) ;; y of grid
+                    (* i rect-height) ;; y of square
+                    (/ (- rect-height sheight) 2.0) ;; y of inner object
+                    ))
+           (vec2 line-thickness sheight)
+           color
+           (+ angle (/ pi -7.0)))
+          (rect-render
+           (vec2 (+ (* x rect-width) ;; x position of grid
+                    (* j rect-width) ;; x position of square
+                    (/ (- rect-width swidth) 2.0) ;; x of inner object
+                    (/ swidth 2))
+                 (+ (* y rect-height) ;; y of grid
+                    (* i rect-height) ;; y of square
+                    (/ (- rect-height sheight) 2.0) ;; y of inner object
+                    (/ sheight 2)
+                    ))
+           (vec2 line-thickness sheight)
+           color
+           (+ angle (/ pi 2))))))))
+
+(defun render-selected-grid ()
+  (render-matrix (@ *matricies* *selected-matrix*)
+                 3.0
+                 (vec4 0.0 0.0 1.0 0.9)
+                 0.4))
+
+(defun render-proximity-highlight ()
+  (let* ((prev (@ *matricies* (mod (1- *selected-matrix*) (size *matricies*))))
+         (prev-color (vec4 0.8 0.2 0.0 0.7))
+         (next (@ *matricies* (mod (1+ *selected-matrix*) (size *matricies*))))
+         (next-color (vec4 1.0 0.0 1.0 0.7)))
+    (render-matrix prev 4.0 prev-color 0.2)
+    (render-matrix next 5.0 next-color 0.3)))
+
+(defun render-grid-highlight ()
+  (iter (for m from 0 below (size *matricies*))
+    (when (= m *selected-matrix*) (next-iteration))
+    (let* ((current (@ *matricies* m))
+           (current-dist (dist-mod m *selected-matrix* (size *matricies*)))
+           (highlight-color (@ current :highlight-color))
+           ;; (highlight-alpha 0.8)
+           (current-color (vec4 (x-val highlight-color)
+                                (y-val highlight-color)
+                                (z-val highlight-color)
+                                ;; (/ highlight-alpha current-dist)
+                                0.8)))
+      (render-matrix current
+                     (/ 8.0 current-dist)
+                     current-color
+                     (/ 0.5 current-dist)))))
+
+;; (defun render-entities (&optional (entities *entities*))
+;;   t)
 
 (defun render-menu ()
   (let* ((dim 10)
@@ -1572,6 +1616,10 @@ the shader did not compile an error is called."
     (when (eql *game-state* +game-play+)
       ;; (when (eql *level-state* +level-play+))
       (render-grid)
+      ;; highlight grids
+      (if (key-pressed-p :d)
+          (render-grid-highlight)
+          (render-proximity-highlight))
       (render-selected-grid)
       (when (eql *level-state* +level-completed+)
         (render-complete-screen)))
