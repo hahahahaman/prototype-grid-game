@@ -1331,7 +1331,7 @@ the shader did not compile an error is called."
       (when (eql *level-state* +level-play+)
 
         ;;; rotate
-        (when (key-action-p :z :press)
+        (when (key-action-p :f :press)
           (add-event (lambda ()
                        (setf *matricies*
                              (with *matricies*
@@ -1339,7 +1339,7 @@ the shader did not compile an error is called."
                                    (matrix-rotate-ccw
                                     (@ *matricies* *selected-matrix*)))))))
 
-        (when (key-action-p :x :press)
+        (when (key-action-p :v :press)
           (add-event (lambda ()
                        (setf *matricies*
                              (with *matricies*
@@ -1348,12 +1348,12 @@ the shader did not compile an error is called."
                                     (@ *matricies* *selected-matrix*)))))))
 
         ;;; switch
-        (when (key-action-p :f :press)
+        (when (key-action-p :z :press)
           (add-event (lambda ()
                        (setf *selected-matrix* (mod (1- *selected-matrix*)
                                                     (size *matricies*))))))
 
-        (when (key-action-p :v :press)
+        (when (key-action-p :x :press)
           (add-event (lambda ()
                        (setf *selected-matrix* (mod (1+ *selected-matrix*)
                                                     (size *matricies*))))))
