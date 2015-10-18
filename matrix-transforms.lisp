@@ -160,7 +160,7 @@
                           (aref *time-speed-multiplier* *time-speed-index*))))
            (- *difficulty* 2)
            (1+ *selected-matrix*)
-           (size *matricies*))
+           (size *matrices*))
    window))
 
 (defun initialize-globals ()
@@ -1074,7 +1074,7 @@ the shader did not compile an error is called."
 (defglobal *grid* (empty-map))
 (defglobal *final-grid* ())
 (defglobal *selected-matrix* 0)
-(defglobal *matricies* (empty-seq))
+(defglobal *matrices* (empty-seq))
 (defglobal *difficulty* 2)
 
 (defun make-matrix (rows cols)
@@ -1145,7 +1145,7 @@ the shader did not compile an error is called."
 
 (defun update-grid ()
   (let ((grid (make-matrix (matrix-rows *grid*) (matrix-cols *grid*))))
-    (do-seq (m *matricies*)
+    (do-seq (m *matrices*)
       (setf grid (matrix-overlap grid m)))
     (setf *grid* grid)))
 
@@ -1153,7 +1153,7 @@ the shader did not compile an error is called."
   (let ((dim (random-in-range difficulty (round (* 1.7 difficulty)))))
     (setf *grid* (make-matrix dim dim)
           *final-grid* *grid*
-          *matricies* (empty-seq)
+          *matrices* (empty-seq)
           *selected-matrix* 0)
 
     ;; matrices
@@ -1196,7 +1196,7 @@ the shader did not compile an error is called."
           (setf *final-grid* (matrix-overlap *final-grid* final-m)))
 
         ;; add new matrix
-        (setf *matricies* (with-last *matricies* m)))))
+        (setf *matrices* (with-last *matrices* m)))))
   (update-grid))
 
 ;;; game
@@ -1264,7 +1264,7 @@ the shader did not compile an error is called."
               *grid*
               *final-grid*
               *selected-matrix*
-              *matricies*))
+              *matrices*))
 
 (defun exit-to-menu ()
   (setf *game-state* +game-menu+)
@@ -1333,62 +1333,62 @@ the shader did not compile an error is called."
         ;;; rotate
         (when (key-action-p :f :press)
           (add-event (lambda ()
-                       (setf *matricies*
-                             (with *matricies*
+                       (setf *matrices*
+                             (with *matrices*
                                    *selected-matrix*
                                    (matrix-rotate-ccw
-                                    (@ *matricies* *selected-matrix*)))))))
+                                    (@ *matrices* *selected-matrix*)))))))
 
         (when (key-action-p :v :press)
           (add-event (lambda ()
-                       (setf *matricies*
-                             (with *matricies*
+                       (setf *matrices*
+                             (with *matrices*
                                    *selected-matrix*
                                    (matrix-rotate-cw
-                                    (@ *matricies* *selected-matrix*)))))))
+                                    (@ *matrices* *selected-matrix*)))))))
 
         ;;; switch
         (when (key-action-p :z :press)
           (add-event (lambda ()
                        (setf *selected-matrix* (mod (1- *selected-matrix*)
-                                                    (size *matricies*))))))
+                                                    (size *matrices*))))))
 
         (when (key-action-p :x :press)
           (add-event (lambda ()
                        (setf *selected-matrix* (mod (1+ *selected-matrix*)
-                                                    (size *matricies*))))))
+                                                    (size *matrices*))))))
 
         ;;; move
         (when (key-action-p :up :press)
-          (let ((selected (@ *matricies* *selected-matrix*)))
+          (let ((selected (@ *matrices* *selected-matrix*)))
             (when (>= (1- (@ selected :y)) 0)
               (add-event (lambda ()
-                           (setf *matricies*
-                                 (with *matricies* *selected-matrix*
+                           (setf *matrices*
+                                 (with *matrices* *selected-matrix*
                                        (with selected :y (1- (@ selected :y))))))))))
 
         (when (key-action-p :down :press)
-          (let ((selected (@ *matricies* *selected-matrix*)))
+          (let ((selected (@ *matrices* *selected-matrix*)))
             (when (<= (+ (matrix-rows selected) (@ selected :y) 1) (matrix-rows *grid*))
               (add-event (lambda ()
-                           (setf *matricies*
-                                 (with *matricies* *selected-matrix*
+                           (setf *matrices*
+                                 (with *matrices* *selected-matrix*
                                        (with selected :y (1+ (@ selected :y))))))))))
 
         (when (key-action-p :left :press)
-          (let ((selected (@ *matricies* *selected-matrix*)))
+          (let ((selected (@ *matrices* *selected-matrix*)))
             (when (>= (1- (@ selected :x)) 0)
               (add-event (lambda ()
-                           (setf *matricies*
-                                 (with *matricies* *selected-matrix*
+                           (setf *matrices*
+                                 (with *matrices* *selected-matrix*
                                        (with selected :x (1- (@ selected :x))))))))))
 
         (when (key-action-p :right :press)
-          (let ((selected (@ *matricies* *selected-matrix*)))
+          (let ((selected (@ *matrices* *selected-matrix*)))
             (when (<= (+ (matrix-cols selected) (@ selected :x) 1) (matrix-cols *grid*))
               (add-event (lambda ()
-                           (setf *matricies*
-                                 (with *matricies* *selected-matrix*
+                           (setf *matrices*
+                                 (with *matrices* *selected-matrix*
                                        (with selected :x (1+ (@ selected :x))))))))))
 
         ;;; next level
@@ -1540,24 +1540,24 @@ the shader did not compile an error is called."
            (+ angle (/ pi 2))))))))
 
 (defun render-selected-grid ()
-  (render-matrix (@ *matricies* *selected-matrix*)
+  (render-matrix (@ *matrices* *selected-matrix*)
                  3.0
                  (vec4 0.0 0.0 1.0 0.9)
                  0.4))
 
 (defun render-proximity-highlight ()
-  (let* ((prev (@ *matricies* (mod (1- *selected-matrix*) (size *matricies*))))
+  (let* ((prev (@ *matrices* (mod (1- *selected-matrix*) (size *matrices*))))
          (prev-color (vec4 0.8 0.2 0.0 0.7))
-         (next (@ *matricies* (mod (1+ *selected-matrix*) (size *matricies*))))
+         (next (@ *matrices* (mod (1+ *selected-matrix*) (size *matrices*))))
          (next-color (vec4 1.0 0.0 1.0 0.7)))
     (render-matrix prev 4.0 prev-color 0.2)
     (render-matrix next 5.0 next-color 0.3)))
 
 (defun render-grid-highlight ()
-  (iter (for m from 0 below (size *matricies*))
+  (iter (for m from 0 below (size *matrices*))
     (when (= m *selected-matrix*) (next-iteration))
-    (let* ((current (@ *matricies* m))
-           (current-dist (dist-mod m *selected-matrix* (size *matricies*)))
+    (let* ((current (@ *matrices* m))
+           (current-dist (dist-mod m *selected-matrix* (size *matrices*)))
            (highlight-color (@ current :highlight-color))
            ;; (highlight-alpha 0.8)
            (current-color (vec4 (x-val highlight-color)
