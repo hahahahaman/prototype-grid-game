@@ -7,6 +7,8 @@
 (defvar *global-setfs* nil)
 
 (defmacro defglobal (var &optional (val nil valp) (doc nil docp))
+  "Creates a global variable and adds a lambda to *GLOBAL-SETFS* that
+can be used to reset VAR to VAL."
   (append `(progn)
           (if (and valp docp)
               `((defvar ,var ,val ,doc))
@@ -21,8 +23,7 @@
 ;; ;; paused
 ;; (defglobal *paused* nil)
 
-;;; screen constants
-;; not really much use, just keeps value holders
+;;; screen
 (defglobal *width* 800)
 (defglobal *height* 800)
 
@@ -35,11 +36,10 @@
 (defglobal *dt* 0.02d0)
 (defglobal *previous-time* 0.0)
 
-;; (defglobal *previous-dt* 0.01)
-;; (defglobal *average-dt* 0.01)
-
 ;;; time travel
-
+;; by using the fset library for shared-structure immutable data structures
+;; program can keep track of state at each frame and then move around the
+;; this total frame state
 (defenum:defenum *enum-time-travel-state* ((+time-play+ 0)
                                            +time-paused+
                                            +time-rewind+
@@ -70,10 +70,6 @@
 (defglobal *sprite-renderer* nil)
 (defglobal *rect-renderer* nil)
 
-;;systems
-;; (defglobal *render-system* nil)
-;; (defglobal *physics-system* nil)
-
 ;;; cursor position values
 (defglobal *cursor-callback-p* nil) ;; cursor has been moved
 (defglobal *first-mouse* t) ;; checks if first time cursor has been moved
@@ -94,11 +90,8 @@
 (defglobal *scroll-y* (/ *height* 2.0))
 
 ;;; entities
-
 (defglobal *entities* (empty-map))
 (defglobal *destructive-changes* ())
-
-(defglobal *debug* nil)
 
 ;;; utils
 (let* ((max-samples 500)
@@ -112,7 +105,7 @@
     ;; (print *dt*)
     (/ max-samples (reduce #'+ samples))))
 
-;;; global system specific
+;; global specific utils
 (defun clear-actions ()
   "Clears the input actions from last frame."
   (setf *key-actions* nil
@@ -123,28 +116,25 @@
   (setf *dt* (- (glfw:get-time) *previous-time*)
         *previous-time* (glfw:get-time))
 
-  ;; (incf *total-frames*)
-
   ;; prevent unruly time steps from breaking game
+  ;; keep time step between 0 and 0.25
   (setf *dt* (max 0.0d0 (min 0.25d0 *dt*))))
 
 (defun cap-fps ()
-  "Cap frame rate, preventing resource hogging"
+  "Cap frame rate, preventing resource hogging."
   (let ((frame-diff (- (+ (/ 1.0d0 +max-fps+) *previous-time*) (glfw:get-time))))
     (when (> frame-diff 0)
-      (sleep frame-diff)
-      ;; (print frame-diff)
-      )))
+      (sleep frame-diff))))
 
 (defun update-globals ()
-  "A single function that encompasses global updates"
+  "A single function that encompasses global updates."
   (clear-actions)
   (update-dt)
   (cap-fps))
 
 (defun update-window-title (window title)
   (cl-glfw3:set-window-title
-   (format nil "~A | fps: ~A | time: ~A | time-travel-state: ~A | level: ~A | grid: ~A / ~A"
+   (format nil "~A | fps: ~A | time: ~A | time-travel-state: ~A"
            title
            (round (average-fps))
            *current-frame*
@@ -157,13 +147,11 @@
                           (aref *time-speed-multiplier* *time-speed-index*)))
                  ((eql *time-travel-state* +time-rewind+)
                   (format nil "REWIND x~d"
-                          (aref *time-speed-multiplier* *time-speed-index*))))
-           (- *difficulty* 2)
-           (1+ *selected-matrix*)
-           (size *matrices*))
+                          (aref *time-speed-multiplier* *time-speed-index*)))))
    window))
 
 (defun initialize-globals ()
+  "Sets all defined globals to their VAL."
   (iter (for (var-symbol func) on *global-setfs* by #'cddr)
     (funcall func)))
 
@@ -174,6 +162,7 @@
          (eq action state))))
 
 (defun key-pressed-p (key)
+  "RETURNS true if key is currently pressed."
   (getf *key-pressed* key))
 
 (defun mouse-button-action-p (button action)
@@ -223,7 +212,7 @@ Remember to free gl-array afterwards."
   (* x x x))
 
 (defun dist-mod (a b modulo)
-  "Distance between A and B, when mod."
+  "Distance between A and B, when mod MODULO."
   (min (mod (- a b) modulo) (mod (- b a) modulo)))
 
 (defun random-in-range (start end)
@@ -313,6 +302,7 @@ V1 and V2."
 (defun w-val (vec)
   (aref vec 3))
 
+;; trying to cut back on destructive changes
 ;; (defun (setf x-val) (value vec)
 ;;   (setf (aref vec 0) value))
 ;; (defun (setf y-val) (value vec)
@@ -320,23 +310,14 @@ V1 and V2."
 ;; (defun (setf z-val) (value vec)
 ;;   (setf (aref vec 2) value))
 
-;; (defun get-slot (object &rest nested-slot-names)
-;;   "Recursively getting slot-value of slot-value."
-;;   (iter (with current = object) (for s in nested-slot-names)
-;;     (setf current (slot-value current s))
-;;     (finally (return current))))
-
 (defmacro get-slot (object &rest nested-slot-names)
+  "Expands into an expression:
+(slot-value (slot-value ... (slot-value object 'name_1) ... 'name_n-1) 'name_n)
+Useful for setting a slot of an object that is a slot in another object."
   (iter (iter:with current = object)
     (for s in nested-slot-names)
     (setf current `(slot-value ,current ,s))
     (finally (return current))))
-
-;; (defun (setf get-slot) (value object &rest nested-slot-names)
-;;   (iter (with current = object)
-;;     (for s in nested-slot-names)
-;;     (setf current `(slot-value ,current ,s))
-;;     (finally (return (setf current value)))))
 
 ;;; file io
 
@@ -523,6 +504,7 @@ that returns a list that has stuff that can update *TIMELINE*."
    *timeline*))
 
 (defun goto-frame (n)
+  "Changes *CURRENT-FRAME* to N, thereby going to the state of frame N."
   ;; constrain between 0 and *MAX-FRAME-INDEX*
   (setf *current-frame* n)
   (when (< *current-frame* 0)
@@ -596,12 +578,6 @@ that returns a list that has stuff that can update *TIMELINE*."
     :initarg :id))
   (:default-initargs
    :id 0))
-#|
-(defgeneric use (SHADER))
-(defgeneric compile (SHADER))
-(defgeneric get-attrib (SHADER NAME))
-(defgeneric get-uniform (SHADER NAME))
-|#
 
 (defmethod initialize-instance ((program program) &key)
   (setf (id program) (gl:create-program))
@@ -866,8 +842,6 @@ the shader did not compile an error is called."
 
 (defmethod initialize-instance :after ((renderer sprite-renderer) &key)
   (with-accessors ((vao vao)) renderer
-    ;; delete qua-vao after garbage collected
-
     (let ((vbo (car (gl:gen-buffers 1))))
       ;; use vao from renderer
       (gl:bind-vertex-array vao)
@@ -889,7 +863,6 @@ the shader did not compile an error is called."
       (gl:bind-vertex-array 0)
 
       ;; clean up
-      ;; (gl:free-gl-array verts)
       (gl:delete-buffers (list vbo)))))
 
 (defmethod sprite-render ((texture2d texture2d)

@@ -1,9 +1,11 @@
 Transform matrices to fit the given pattern.
 
-# Compile
+# Compile Binary
 * sbcl --load build.lisp
 
 # Requires
 * libffi
 * glfw3
-* SOIL
+* fset
+* iterate
+* [SOIL](https://github.com/cbaggers/cl-soil) (not in quicklisp)
