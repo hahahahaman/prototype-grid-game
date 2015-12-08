@@ -1,9 +1,9 @@
-Transform matrices to fit the given pattern.
+## matrix transforms - game about transforming matrices to fit the given pattern.
 
-# Compile Binary
+### Compile Binary
 * sbcl --load build.lisp
 
-# Requires
+### Requires
 * libffi
 * glfw3
 * fset
